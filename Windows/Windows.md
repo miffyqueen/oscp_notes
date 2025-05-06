@@ -136,6 +136,12 @@ int main ()
 
 x86_64-w64-mingw32-gcc adduser.c -o adduser.exe
 ```
+### Priv Esc Checker
+https://github.com/itm4n/PrivescCheck/tree/master
+```
+Import-Module ./PrivEschChecker.ps1
+Invoke-PrivEscCheck
+```
 
 #### Basic DLL to add user 
 ```
