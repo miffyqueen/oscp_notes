@@ -1,0 +1,1 @@
+`xfreerdp /u:stephanie /v:192.168.119.75 /dynamic-resolution /drive:/tmp`
