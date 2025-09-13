@@ -43,7 +43,7 @@ bloodhound &            # opens BloodHound GUI
 
 ```
 Username: neo4j
-Password: neo4j
+Password: 12345
 ```
 
 (You’ll be forced to reset on first login. Save your new password in your exam notes.)
