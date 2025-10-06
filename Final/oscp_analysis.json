@@ -1,0 +1,42 @@
+{
+  "exam_scenarios": [
+    "Buffer Overflow exploitation with 25 points",
+    "Active Directory domain compromise (40 points)",
+    "Windows privilege escalation",
+    "Linux privilege escalation",
+    "Web application enumeration and exploitation",
+    "SMB enumeration and lateral movement",
+    "Kerberoasting and AS-REP roasting",
+    "Network pivoting and port forwarding"
+  ],
+  "common_mistakes": [
+    "Insufficient enumeration - not checking all ports/services",
+    "Time management - spending too much time on one machine",
+    "Not taking proper screenshots for report",
+    "Rushing without methodology",
+    "Not checking basic misconfigurations first",
+    "Forgetting to check common directories/files",
+    "Not testing all discovered credentials across services",
+    "Poor note-taking during exam"
+  ],
+  "essential_tools": [
+    "nmap - network/port scanning",
+    "gobuster/dirsearch - directory enumeration",
+    "burp suite - web app testing",
+    "impacket suite - AD attacks",
+    "crackmapexec - lateral movement",
+    "bloodhound - AD enumeration",
+    "linpeas/winpeas - privilege escalation",
+    "msfvenom - payload generation"
+  ],
+  "methodology_phases": [
+    "Initial enumeration (1-2 hours)",
+    "Service enumeration and banner grabbing",
+    "Web application testing if applicable",
+    "Credential discovery and testing",
+    "Initial access exploitation",
+    "Post-exploitation enumeration",
+    "Privilege escalation",
+    "Lateral movement if needed"
+  ]
+}
