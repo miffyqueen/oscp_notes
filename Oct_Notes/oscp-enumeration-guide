@@ -1,0 +1,997 @@
+# OSCP Enumeration Master Guide - TJ Null Edition
+
+Based on comprehensive research from GitHub, OffSec, YouTube, CSDN, Medium, and Reddit across Chinese, English, Hindi, Spanish, and French sources. This guide covers all enumeration techniques proven effective in TJ Null boxes and OSCP exams.
+
+## Table of Contents
+- [Network Enumeration Fundamentals](#network-enumeration-fundamentals)
+- [Port Scanning Mastery](#port-scanning-mastery)
+- [Service-Specific Enumeration](#service-specific-enumeration)
+- [Web Application Enumeration](#web-application-enumeration)
+- [Active Directory Enumeration](#active-directory-enumeration)
+- [Operating System Enumeration](#operating-system-enumeration)
+- [Advanced Enumeration Techniques](#advanced-enumeration-techniques)
+- [TJ Null Enumeration Patterns](#tj-null-enumeration-patterns)
+- [Automation and Scripting](#automation-and-scripting)
+
+## Network Enumeration Fundamentals
+
+### Phase 1: Network Discovery
+
+**Step 1: Host Discovery (Copy-Paste Ready)**
+```bash
+# Set target network - EDIT THIS LINE ONLY
+NETWORK=192.168.1.0/24
+
+# Ping sweep for live hosts
+nmap -sn $NETWORK
+
+# Alternative host discovery methods
+nmap -sn -PS22,80,443,3389 $NETWORK  # TCP SYN ping
+nmap -sn -PA80,443,3389 $NETWORK     # TCP ACK ping  
+nmap -sn -PU53,67,68,161 $NETWORK    # UDP ping
+
+# Netdiscover for ARP discovery
+netdiscover -r $NETWORK -P
+
+# Fping for fast ping sweep
+fping -a -g $NETWORK 2>/dev/null
+```
+
+**Step 2: Network Range Analysis**
+```bash
+# Identify network infrastructure
+nmap -sn --traceroute $NETWORK
+
+# Identify OS types across network
+nmap -O $NETWORK --osscan-guess
+
+# Quick service scan across network  
+nmap -sS -F $NETWORK --open
+```
+
+### Phase 2: Target Prioritization
+
+**Step 1: Service Fingerprinting**
+```bash
+# Set target IP - EDIT THIS LINE ONLY
+TARGET=192.168.1.100
+
+# Quick service identification
+nmap -sS -O -sV --top-ports 1000 $TARGET
+
+# Banner grabbing for all open ports
+nmap -sS -sV -A $TARGET --open
+
+# Aggressive scan for maximum information
+nmap -A -T4 $TARGET
+```
+
+**Step 2: Initial Vulnerability Assessment**
+```bash
+# Basic vulnerability scan
+nmap --script vuln $TARGET
+
+# Service-specific vulnerability scans
+nmap --script smb-vuln-* $TARGET -p 445
+nmap --script http-vuln-* $TARGET -p 80,443,8080
+nmap --script ssh-* $TARGET -p 22
+```
+
+## Port Scanning Mastery
+
+### Phase 1: Comprehensive Port Scanning
+
+**Step 1: TCP Port Scanning**
+```bash
+# Target IP - EDIT THIS LINE ONLY
+TARGET=192.168.1.100
+
+# Quick TCP scan (top 1000 ports)
+nmap -sS --top-ports 1000 $TARGET -T4
+
+# Full TCP port range
+nmap -sS -p- $TARGET -T4 --min-rate=1000
+
+# Specific port ranges
+nmap -sS -p 1-1000 $TARGET -T4
+nmap -sS -p 1000-2000 $TARGET -T4
+
+# Common service ports
+nmap -sS -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5432,5900 $TARGET
+```
+
+**Step 2: UDP Port Scanning**
+```bash
+# Top UDP ports
+sudo nmap -sU --top-ports 100 $TARGET
+
+# Specific UDP services
+sudo nmap -sU -p 53,67,68,69,123,135,137,138,139,161,162,445,500,514,520,631,1434,1900,4500 $TARGET
+
+# Fast UDP scan with version detection
+sudo nmap -sU -sV --version-intensity 0 --top-ports 100 $TARGET -T4
+```
+
+**Step 3: Advanced Scanning Techniques**
+```bash
+# SYN scan (stealthy)
+nmap -sS -p 1-65535 $TARGET
+
+# Connect scan (complete handshake)
+nmap -sT -p 1-65535 $TARGET
+
+# FIN scan (firewall evasion)
+nmap -sF -p 1-65535 $TARGET
+
+# XMAS scan (firewall evasion)  
+nmap -sX -p 1-65535 $TARGET
+
+# NULL scan (firewall evasion)
+nmap -sN -p 1-65535 $TARGET
+
+# Idle scan (using zombie host)
+nmap -sI zombie_ip $TARGET -p 1-1000
+```
+
+### Phase 2: Service Version Detection
+
+**Step 1: Service Enumeration**
+```bash
+# Service version detection on open ports
+nmap -sS -sV $TARGET --open
+
+# Aggressive service detection
+nmap -sS -sV --version-intensity 9 $TARGET
+
+# Service detection with NSE scripts
+nmap -sS -sC -sV $TARGET
+
+# Banner grabbing with netcat
+nc -nv $TARGET 80
+nc -nv $TARGET 22
+nc -nv $TARGET 21
+```
+
+**Step 2: Operating System Detection**
+```bash
+# OS fingerprinting
+nmap -O $TARGET
+
+# Aggressive OS detection
+nmap -O --osscan-guess --osscan-limit $TARGET
+
+# OS detection with service versions
+nmap -O -sV $TARGET
+
+# TTL-based OS identification
+ping -c 1 $TARGET | grep ttl
+# TTL 64 = Linux/Unix
+# TTL 128 = Windows
+# TTL 255 = Cisco/Network devices
+```
+
+## Service-Specific Enumeration
+
+### SSH (Port 22)
+
+```bash
+# SSH service enumeration
+nmap -p 22 --script ssh-hostkey,ssh-auth-methods $TARGET
+
+# SSH version banner  
+nc -nv $TARGET 22
+
+# SSH user enumeration (if vulnerable)
+python3 /usr/share/exploitdb/exploits/linux/remote/40136.py $TARGET
+
+# SSH brute force (with common credentials)
+hydra -L /usr/share/seclists/Usernames/top-usernames-shortlist.txt -P /usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-100.txt ssh://$TARGET
+
+# SSH config analysis
+ssh-audit $TARGET
+```
+
+### FTP (Port 21)
+
+```bash
+# FTP service enumeration
+nmap -p 21 --script ftp-* $TARGET
+
+# Anonymous FTP access
+ftp $TARGET
+# Try: anonymous/anonymous, ftp/ftp, anonymous/email
+
+# FTP banner grabbing
+nc -nv $TARGET 21
+
+# FTP brute force
+hydra -L userlist.txt -P passlist.txt ftp://$TARGET
+
+# FTP bounce scan
+nmap --script ftp-bounce --script-args ftp-bounce.username=anonymous,ftp-bounce.password= $TARGET
+```
+
+### Telnet (Port 23)
+
+```bash
+# Telnet banner grabbing
+nc -nv $TARGET 23
+telnet $TARGET
+
+# Telnet brute force
+hydra -L userlist.txt -P passlist.txt telnet://$TARGET
+
+# Telnet vulnerability scan
+nmap -p 23 --script telnet-* $TARGET
+```
+
+### SMTP (Port 25)
+
+```bash
+# SMTP enumeration
+nmap -p 25 --script smtp-* $TARGET
+
+# SMTP user enumeration
+smtp-user-enum -M VRFY -U userlist.txt -t $TARGET
+smtp-user-enum -M EXPN -U userlist.txt -t $TARGET
+smtp-user-enum -M RCPT -U userlist.txt -t $TARGET
+
+# Manual SMTP enumeration
+nc -nv $TARGET 25
+telnet $TARGET 25
+# Commands: VRFY username, EXPN username, RCPT TO: username
+
+# SMTP open relay testing
+nmap -p 25 --script smtp-open-relay $TARGET
+```
+
+### DNS (Port 53)
+
+```bash
+# DNS enumeration
+nmap -p 53 --script dns-* $TARGET
+
+# DNS zone transfer
+dig axfr @$TARGET domain.com
+dnsrecon -d domain.com -t axfr -n $TARGET
+
+# DNS brute force
+dnsrecon -d domain.com -t brt -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -n $TARGET
+
+# Reverse DNS lookup
+dig -x $TARGET @$TARGET
+
+# DNS cache snooping
+nmap -p 53 --script dns-cache-snoop --script-args 'dns-cache-snoop.mode=timed' $TARGET
+```
+
+### HTTP/HTTPS (Ports 80/443)
+
+```bash
+# Web server enumeration
+nmap -p 80,443 --script http-* $TARGET
+
+# Technology identification
+whatweb http://$TARGET
+wafw00f http://$TARGET
+
+# Directory/file discovery
+gobuster dir -u http://$TARGET -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,txt,js
+dirb http://$TARGET /usr/share/wordlists/dirb/common.txt
+
+# Vulnerability scanning
+nikto -h http://$TARGET
+
+# SSL/TLS enumeration (for HTTPS)
+sslscan $TARGET
+nmap -p 443 --script ssl-* $TARGET
+```
+
+### POP3 (Port 110)
+
+```bash
+# POP3 enumeration
+nmap -p 110 --script pop3-* $TARGET
+
+# POP3 banner grabbing
+nc -nv $TARGET 110
+telnet $TARGET 110
+
+# POP3 brute force
+hydra -L userlist.txt -P passlist.txt pop3://$TARGET
+```
+
+### RPC (Port 111)
+
+```bash
+# RPC enumeration
+nmap -p 111 --script rpc-* $TARGET
+
+# RPC service listing
+rpcinfo -p $TARGET
+showmount -e $TARGET  # If NFS is available
+```
+
+### SMB (Ports 135/139/445)
+
+```bash
+# SMB enumeration
+nmap -p 139,445 --script smb-* $TARGET
+
+# SMB OS discovery
+nmap -p 445 --script smb-os-discovery $TARGET
+
+# SMB share enumeration
+smbclient -L //$TARGET -N
+smbmap -H $TARGET
+enum4linux -a $TARGET
+
+# SMB vulnerability scanning
+nmap -p 445 --script smb-vuln-* $TARGET
+
+# SMB brute force
+hydra -L userlist.txt -P passlist.txt smb://$TARGET
+```
+
+### SNMP (Port 161)
+
+```bash
+# SNMP enumeration
+nmap -p 161 --script snmp-* $TARGET
+
+# SNMP community string brute force
+onesixtyone -c /usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt $TARGET
+
+# SNMP walking
+snmpwalk -v1 -c public $TARGET
+snmpwalk -v2c -c public $TARGET
+
+# SNMP enumeration with snmp-check
+snmp-check $TARGET
+```
+
+### LDAP (Ports 389/636)
+
+```bash
+# LDAP enumeration
+nmap -p 389,636 --script ldap-* $TARGET
+
+# LDAP anonymous bind
+ldapsearch -x -h $TARGET -p 389 -s base
+
+# LDAP brute force
+hydra -L userlist.txt -P passlist.txt ldap://$TARGET
+```
+
+### MSSQL (Port 1433)
+
+```bash
+# MSSQL enumeration
+nmap -p 1433 --script ms-sql-* $TARGET
+
+# MSSQL information gathering
+sqsh -S $TARGET -U sa -P password
+
+# MSSQL brute force
+hydra -L userlist.txt -P passlist.txt mssql://$TARGET
+```
+
+### MySQL (Port 3306)
+
+```bash
+# MySQL enumeration
+nmap -p 3306 --script mysql-* $TARGET
+
+# MySQL connection attempt
+mysql -h $TARGET -u root -p
+
+# MySQL brute force
+hydra -L userlist.txt -P passlist.txt mysql://$TARGET
+```
+
+### RDP (Port 3389)
+
+```bash
+# RDP enumeration
+nmap -p 3389 --script rdp-* $TARGET
+
+# RDP connection test
+rdesktop $TARGET
+xfreerdp /v:$TARGET
+
+# RDP brute force
+hydra -L userlist.txt -P passlist.txt rdp://$TARGET
+```
+
+## Web Application Enumeration
+
+### Phase 1: Initial Web Discovery
+
+**Step 1: Technology Stack Identification**
+```bash
+# Target URL - EDIT THIS LINE ONLY
+URL=http://192.168.1.100
+
+# Technology fingerprinting
+whatweb $URL -v
+wafw00f $URL
+
+# Manual technology identification
+curl -I $URL
+curl -s $URL | grep -i "generator\|powered\|built\|version"
+
+# Framework identification
+wapiti $URL --verify-ssl 0
+```
+
+**Step 2: Directory and File Discovery**
+```bash
+# Primary directory enumeration
+gobuster dir -u $URL -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,txt,js,xml,bak -t 50
+
+# Alternative tools
+dirb $URL /usr/share/wordlists/dirb/common.txt
+ffuf -w /usr/share/seclists/Discovery/Web-Content/common.txt -u $URL/FUZZ
+
+# Technology-specific wordlists
+# PHP applications
+gobuster dir -u $URL -w /usr/share/seclists/Discovery/Web-Content/PHP.fuzz.txt -x php,inc,phtml
+
+# ASP.NET applications  
+gobuster dir -u $URL -w /usr/share/seclists/Discovery/Web-Content/IIS.fuzz.txt -x asp,aspx,ashx
+
+# Backup and temporary files
+gobuster dir -u $URL -w /usr/share/seclists/Discovery/Web-Content/common.txt -x bak,backup,old,tmp,orig,save
+```
+
+### Phase 2: Advanced Web Enumeration
+
+**Step 1: Parameter Discovery**
+```bash
+# GET parameter discovery
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u "$URL/?FUZZ=test" -fs 1234
+
+# POST parameter discovery
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u "$URL/" -X POST -d "FUZZ=test" -H "Content-Type: application/x-www-form-urlencoded"
+
+# Common parameters to test manually
+parameters=("id" "page" "file" "dir" "path" "cmd" "exec" "action" "module" "include" "cat" "detail" "view" "show" "admin" "debug" "test")
+for param in "${parameters[@]}"; do
+    echo "Testing parameter: $param"
+    curl -s "$URL/?$param=test" | wc -c
+done
+```
+
+**Step 2: Virtual Host Discovery**
+```bash
+# Virtual host brute forcing
+gobuster vhost -u $URL -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Alternative method with ffuf
+ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -u $URL -H "Host: FUZZ.domain.com"
+```
+
+### Phase 3: CMS-Specific Enumeration
+
+**WordPress Enumeration**
+```bash
+# WordPress detection and enumeration
+wpscan --url $URL --enumerate ap,at,cb,dbe,u,m
+
+# Manual WordPress enumeration
+curl -s $URL/wp-content/themes/
+curl -s $URL/wp-content/plugins/
+curl -s $URL/wp-json/wp/v2/users
+curl -s $URL/wp-admin/
+curl -s $URL/xmlrpc.php
+```
+
+**Joomla Enumeration**
+```bash
+# Joomla detection
+curl -s $URL | grep -i joomla
+
+# Joomla specific paths
+paths=("administrator/" "configuration.php" "htaccess.txt" "web.config.txt" "README.txt" "LICENSE.txt" "robots.txt" "language/")
+for path in "${paths[@]}"; do
+    echo "Testing: $URL/$path"
+    curl -I $URL/$path
+done
+```
+
+**Drupal Enumeration**
+```bash
+# Drupal detection
+curl -s $URL | grep -i drupal
+curl -s $URL/CHANGELOG.txt
+curl -s $URL/README.txt
+
+# Drupal specific enumeration
+droopescan scan drupal -u $URL
+```
+
+## Active Directory Enumeration
+
+### Phase 1: Domain Discovery
+
+**Step 1: Initial AD Reconnaissance**
+```bash
+# Target domain controller - EDIT THIS LINE ONLY
+DC_IP=192.168.1.10
+
+# Basic domain information
+nslookup $DC_IP
+dig -x $DC_IP
+
+# SMB enumeration for AD
+enum4linux -a $DC_IP
+smbclient -L //$DC_IP -N
+
+# LDAP enumeration
+ldapsearch -x -h $DC_IP -s base namingcontexts
+```
+
+**Step 2: User and Group Enumeration**
+```bash
+# User enumeration via RPC
+rpcclient -U "" -N $DC_IP
+# Commands: enumdomusers, enumdomgroups, queryuser <rid>
+
+# User enumeration via LDAP
+ldapsearch -x -h $DC_IP -b "DC=domain,DC=com" "(objectClass=user)" sAMAccountName
+
+# Kerberos user enumeration
+kerbrute userenum -d domain.com /usr/share/seclists/Usernames/Names/names.txt --dc $DC_IP
+```
+
+### Phase 2: Service Discovery
+
+**Step 1: Service Principal Name (SPN) Enumeration**
+```bash
+# SPN enumeration with valid credentials
+python3 /usr/share/doc/python3-impacket/examples/GetUserSPNs.py domain.com/username:password -dc-ip $DC_IP -request
+
+# SPN enumeration via LDAP
+ldapsearch -x -h $DC_IP -b "DC=domain,DC=com" "(servicePrincipalName=*)" servicePrincipalName
+```
+
+**Step 2: Trust Relationships**
+```bash
+# Domain trust enumeration
+nltest /domain_trusts /all_trusts
+
+# PowerShell trust enumeration
+Get-ADTrust -Filter *
+Get-ADObject -Filter {objectClass -eq "trustedDomain"} -Properties *
+```
+
+## Operating System Enumeration
+
+### Linux System Enumeration
+
+```bash
+# System information
+uname -a
+cat /etc/*release*
+cat /proc/version
+hostnamectl
+
+# User and group information
+id
+whoami
+groups
+cat /etc/passwd
+cat /etc/group
+cat /etc/shadow  # If readable
+
+# Network configuration
+ifconfig -a
+ip addr show
+route -n
+netstat -tlnup
+ss -tlnup
+
+# Process information
+ps aux
+ps -ef
+pstree
+
+# Installed software
+dpkg -l  # Debian/Ubuntu
+rpm -qa  # Red Hat/CentOS
+yum list installed  # CentOS/RHEL
+apt list --installed  # Debian/Ubuntu
+
+# Service information
+systemctl list-units --type=service
+service --status-all
+chkconfig --list
+
+# File system information
+df -h
+mount
+cat /etc/fstab
+lsblk
+
+# Environment variables
+env
+printenv
+
+# History files
+cat ~/.bash_history
+cat ~/.zsh_history
+find / -name "*_history" 2>/dev/null
+```
+
+### Windows System Enumeration
+
+```cmd
+REM System information
+systeminfo
+hostname
+whoami
+whoami /priv
+whoami /groups
+
+REM Network configuration
+ipconfig /all
+route print
+netstat -ano
+arp -a
+
+REM User and group information
+net user
+net localgroup
+net localgroup administrators
+net group "domain admins" /domain
+
+REM Process information
+tasklist
+wmic process list full
+
+REM Service information
+sc query
+wmic service list brief
+net start
+
+REM Installed software
+wmic product get name,version
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall
+
+REM Scheduled tasks
+schtasks /query /fo LIST /v
+
+REM Registry enumeration
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+
+REM File system information
+dir C:\
+dir /s /b C:\*.config
+dir /s /b C:\*password*
+
+REM Event logs (if accessible)
+wevtutil el
+wevtutil qe Application /f:text /rd:true /c:5
+```
+
+## Advanced Enumeration Techniques
+
+### Phase 1: Stealthy Enumeration
+
+**Step 1: Passive Information Gathering**
+```bash
+# DNS enumeration without direct contact
+whois domain.com
+dig domain.com any
+nslookup -type=any domain.com
+
+# Certificate transparency logs
+curl -s "https://crt.sh/?q=domain.com&output=json" | jq -r '.[].name_value' | sort -u
+
+# Search engine enumeration
+# Google: site:domain.com filetype:pdf
+# Google: site:domain.com inurl:admin
+# Shodan: hostname:"domain.com"
+```
+
+**Step 2: Indirect Enumeration**
+```bash
+# Email enumeration
+theHarvester -d domain.com -l 100 -b google
+theHarvester -d domain.com -l 100 -b bing
+
+# Social media enumeration
+# LinkedIn employee search
+# GitHub repository search: "domain.com"
+# Pastebin search: "domain.com"
+```
+
+### Phase 2: Network Pivoting Enumeration
+
+**Step 1: Internal Network Discovery**
+```bash
+# ARP table enumeration (from compromised host)
+arp -a
+cat /proc/net/arp
+
+# Network interface enumeration
+ifconfig -a
+ip addr show
+cat /proc/net/fib_trie
+
+# Routing table analysis
+route -n
+ip route show
+netstat -rn
+```
+
+**Step 2: Multi-Hop Scanning**
+```bash
+# Proxy scanning through compromised host
+proxychains nmap -sT -Pn $TARGET
+
+# SSH tunnel scanning
+ssh -D 8080 user@compromised_host
+proxychains nmap -sT -Pn internal_target
+
+# Port forwarding for enumeration
+ssh -L 3389:internal_target:3389 user@compromised_host
+```
+
+## TJ Null Enumeration Patterns
+
+### Common TJ Null Box Enumeration Scenarios
+
+**Pattern 1: Web Application with Hidden Functionality**
+1. Standard web enumeration reveals basic directories
+2. Parameter fuzzing discovers admin/debug parameters  
+3. Admin functionality accessible with right parameters
+4. File upload or command execution in admin area
+
+**Pattern 2: Service Version with Known Exploit**
+1. Port scan reveals specific service version
+2. Version research shows public exploit available
+3. Exploit provides direct system access
+4. No additional enumeration needed for initial access
+
+**Pattern 3: Multi-Service Credential Reuse**
+1. FTP/SMB anonymous access reveals configuration files
+2. Configuration files contain service credentials
+3. Credentials work on SSH/RDP/Web admin
+4. Multiple access vectors from single enumeration finding
+
+**Pattern 4: Information Disclosure Chain**
+1. Web directory listing reveals backup files
+2. Backup files contain database credentials
+3. Database access reveals user password hashes
+4. Cracked hashes work on system services
+
+### TJ Null Difficulty Recognition
+
+**Easy Box Enumeration Indicators:**
+- Clear service banners with full version information
+- Anonymous access available on multiple services
+- Directory listings enabled on web servers
+- Configuration files in obvious locations
+- Standard tool output immediately useful
+
+**Medium Box Enumeration Indicators:**
+- Service versions available but require research
+- Limited anonymous access with useful information
+- Hidden directories/files require fuzzing to discover
+- Multiple enumeration steps needed for full picture
+- Custom applications require parameter discovery
+
+**Hard Box Enumeration Indicators:**
+- Minimal service information disclosure
+- No anonymous access, credentials required for enumeration
+- Custom applications with non-standard behavior
+- Information spread across multiple obscure locations
+- Advanced techniques required for meaningful enumeration
+
+## Automation and Scripting
+
+### Phase 1: Enumeration Automation Scripts
+
+**Complete Network Enumeration Script**
+```bash
+#!/bin/bash
+# complete_enum.sh - Comprehensive enumeration script
+
+TARGET=$1
+if [ -z "$TARGET" ]; then
+    echo "Usage: $0 <target_ip>"
+    exit 1
+fi
+
+echo "[+] Starting comprehensive enumeration of $TARGET"
+
+# Create output directory
+mkdir -p enum_$TARGET
+
+# Network discovery
+echo "[+] Network discovery..."
+nmap -sn -PS22,80,443,3389 $TARGET/24 > enum_$TARGET/network_discovery.txt
+
+# Port scanning
+echo "[+] Port scanning..."
+nmap -sS -p- $TARGET -T4 --min-rate=1000 > enum_$TARGET/all_ports.txt
+nmap -sS -sV -sC -O $TARGET --open > enum_$TARGET/service_scan.txt
+
+# Extract open ports
+open_ports=$(grep "^[0-9]" enum_$TARGET/all_ports.txt | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+
+if [ ! -z "$open_ports" ]; then
+    echo "[+] Detailed service enumeration on ports: $open_ports"
+    nmap -sS -sV -sC -A -p $open_ports $TARGET > enum_$TARGET/detailed_services.txt
+fi
+
+# Web enumeration (if web services found)
+if grep -q "80\|443\|8080\|8443" enum_$TARGET/all_ports.txt; then
+    echo "[+] Web service enumeration..."
+    whatweb http://$TARGET > enum_$TARGET/web_tech.txt 2>/dev/null
+    gobuster dir -u http://$TARGET -w /usr/share/wordlists/dirb/common.txt -x php,html,txt > enum_$TARGET/web_dirs.txt 2>/dev/null
+    nikto -h http://$TARGET > enum_$TARGET/web_vulns.txt 2>/dev/null
+fi
+
+# SMB enumeration (if SMB found)
+if grep -q "445\|139" enum_$TARGET/all_ports.txt; then
+    echo "[+] SMB enumeration..."
+    enum4linux -a $TARGET > enum_$TARGET/smb_enum.txt 2>/dev/null
+    smbmap -H $TARGET > enum_$TARGET/smb_shares.txt 2>/dev/null
+fi
+
+# DNS enumeration (if DNS found)
+if grep -q "53" enum_$TARGET/all_ports.txt; then
+    echo "[+] DNS enumeration..."
+    dig axfr @$TARGET > enum_$TARGET/dns_zone_transfer.txt 2>/dev/null
+fi
+
+echo "[+] Enumeration complete! Results in enum_$TARGET/"
+```
+
+**Web Application Enumeration Script**
+```bash
+#!/bin/bash
+# web_enum.sh - Focused web application enumeration
+
+URL=$1
+if [ -z "$URL" ]; then
+    echo "Usage: $0 <target_url>"
+    exit 1
+fi
+
+echo "[+] Starting web enumeration of $URL"
+
+# Create output directory
+mkdir -p web_enum_$(echo $URL | sed 's/https\?:\/\///g' | sed 's/\//_/g')
+OUTDIR="web_enum_$(echo $URL | sed 's/https\?:\/\///g' | sed 's/\//_/g')"
+
+# Technology identification
+echo "[+] Technology identification..."
+whatweb $URL -v > $OUTDIR/technology.txt
+wafw00f $URL > $OUTDIR/waf_detection.txt
+
+# Directory enumeration
+echo "[+] Directory enumeration..."
+gobuster dir -u $URL -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x php,html,txt,js,xml,bak,backup -t 50 -o $OUTDIR/directories.txt
+
+# Common files
+echo "[+] Common file discovery..."
+files=("robots.txt" "sitemap.xml" "crossdomain.xml" ".htaccess" "web.config" ".env" "config.php" "wp-config.php" "admin.php" "login.php" "phpinfo.php")
+for file in "${files[@]}"; do
+    response=$(curl -s -w "%{http_code}" -o /dev/null $URL/$file)
+    if [ "$response" = "200" ]; then
+        echo "FOUND: $URL/$file" >> $OUTDIR/found_files.txt
+        curl -s $URL/$file > $OUTDIR/file_$file
+    fi
+done
+
+# Parameter discovery
+echo "[+] Parameter discovery..."
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u "$URL/?FUZZ=test" -fs 1234 -o $OUTDIR/parameters.txt -of csv
+
+echo "[+] Web enumeration complete! Results in $OUTDIR/"
+```
+
+### Phase 2: Service-Specific Automation
+
+**SMB Enumeration Script**
+```bash
+#!/bin/bash
+# smb_enum.sh - Comprehensive SMB enumeration
+
+TARGET=$1
+if [ -z "$TARGET" ]; then
+    echo "Usage: $0 <target_ip>"
+    exit 1
+fi
+
+echo "[+] Starting SMB enumeration of $TARGET"
+
+# Basic SMB enumeration
+echo "[+] Basic SMB enumeration..."
+enum4linux -a $TARGET > smb_enum_full.txt
+smbmap -H $TARGET > smb_shares.txt
+smbclient -L //$TARGET -N > smb_shares_smbclient.txt
+
+# SMB vulnerability scanning
+echo "[+] SMB vulnerability scanning..."
+nmap -p 445 --script smb-vuln-* $TARGET > smb_vulns.txt
+
+# Try to connect to discovered shares
+echo "[+] Attempting to connect to shares..."
+shares=$(smbclient -L //$TARGET -N | grep "Disk" | awk '{print $1}')
+for share in $shares; do
+    echo "Attempting to access share: $share"
+    smbclient //$TARGET/$share -N -c "ls" > share_$share.txt 2>/dev/null
+done
+
+echo "[+] SMB enumeration complete!"
+```
+
+**Port Scanning Optimization Script**
+```bash
+#!/bin/bash
+# fast_scan.sh - Optimized port scanning for OSCP
+
+TARGET=$1
+if [ -z "$TARGET" ]; then
+    echo "Usage: $0 <target_ip>"
+    exit 1
+fi
+
+# Stage 1: Quick discovery scan
+echo "[+] Stage 1: Quick port discovery..."
+nmap -sS --top-ports 1000 $TARGET -T4 --min-rate=5000 -oN quick_scan.txt
+
+# Extract open ports
+open_ports=$(grep "^[0-9]" quick_scan.txt | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+
+if [ -z "$open_ports" ]; then
+    echo "[-] No open ports found in quick scan"
+    exit 1
+fi
+
+echo "[+] Found open ports: $open_ports"
+
+# Stage 2: Detailed scan on open ports only
+echo "[+] Stage 2: Detailed service enumeration..."
+nmap -sS -sV -sC -A -p $open_ports $TARGET -oN detailed_scan.txt
+
+# Stage 3: UDP scan on common ports
+echo "[+] Stage 3: UDP scan..."
+sudo nmap -sU --top-ports 100 $TARGET -T4 -oN udp_scan.txt
+
+# Stage 4: Full TCP scan (background)
+echo "[+] Stage 4: Full TCP scan (background)..."
+nmap -sS -p- $TARGET -T4 --min-rate=1000 -oN full_tcp_scan.txt &
+
+echo "[+] Enumeration stages initiated!"
+```
+
+Remember: Enumeration is 80% of successful penetration testing. Spend adequate time on this phase - the information you gather here determines your attack vectors and ultimate success. Master these techniques and adapt them to each unique environment you encounter!
+
+## Final Enumeration Checklist
+
+**Always Enumerate:**
+- [ ] All TCP ports (at minimum top 1000)
+- [ ] UDP ports (at minimum top 100) 
+- [ ] Service versions on all open ports
+- [ ] Web directories and files (if web services exist)
+- [ ] SMB shares and permissions (if SMB exists)
+- [ ] Operating system and patch level
+- [ ] Running processes and services
+- [ ] User accounts and groups
+- [ ] Network configuration and routing
+- [ ] Installed software and versions
+
+**Never Skip:**
+- [ ] Manual verification of automated tool results
+- [ ] Testing for default credentials on all services
+- [ ] Checking for anonymous access (FTP, SMB, etc.)
+- [ ] Searching for backup files and configurations
+- [ ] Parameter fuzzing on web applications
+- [ ] Version-specific vulnerability research
+- [ ] Cross-referencing findings between different tools

